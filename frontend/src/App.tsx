@@ -78,7 +78,7 @@ function App() {
     const endpoint = isRegisterMode ? 'register' : 'login';
     
     try {
-      const response = await fetch(`http://127.0.0.1:8080/${endpoint}`, {
+      const response = await fetch(`${API_URL}/${endpoint}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username, password })
