@@ -50,12 +50,12 @@ function App() {
     
     const connect = () => {
       try {
-        socket = new WebSocket(WS_URL);
+        console.log("Attempting to connect to:", WS_URL);
+        const socket = new WebSocket(WS_URL);
         ws.current = socket;
-        console.log("WebSocket object created, current readyState:", socket.readyState);
 
         socket.onopen = () => {
-          console.log("WebSocket connected successfully!");
+          console.log("WebSocket Connection Opened (OPEN)");
           setIsConnected(true);
           setError('');
           socket.send(JSON.stringify({
@@ -65,34 +65,36 @@ function App() {
           }));
         };
       
-      socket.onclose = () => {
-        setIsConnected(false);
-        // Try to reconnect after 3 seconds
-        setTimeout(() => {
+        socket.onclose = (event) => {
+          console.log("WebSocket Connection Closed. Code:", event.code, "Reason:", event.reason);
+          setIsConnected(false);
           if (isLoggedIn) {
-            console.log("Attempting to reconnect...");
-            connect();
+            console.log("Scheduling reconnection in 3s...");
+            setTimeout(connect, 3000);
           }
-        }, 3000);
-      };
+        };
 
-      socket.onerror = (err) => {
-        console.error("WebSocket error:", err);
-        setError("Connection error. Is the backend running?");
-      };
-      
-      socket.onmessage = (event) => {
-        try {
-          const data = JSON.parse(event.data);
-          if (data.type === 'message') {
-            setMessages(prev => [...prev, data]);
-          } else if (data.type === 'user_list') {
-            setUsers(data.users);
+        socket.onerror = (err) => {
+          console.error("WebSocket transport error observed:", err);
+          setError("Connection error. Is the backend running?");
+        };
+        
+        socket.onmessage = (event) => {
+          try {
+            const data = JSON.parse(event.data);
+            console.log("Message received from server:", data.type);
+            if (data.type === 'message') {
+              setMessages(prev => [...prev, data]);
+            } else if (data.type === 'user_list') {
+              setUsers(data.users);
+            }
+          } catch (e) {
+            console.error("Failed to parse message", e);
           }
-        } catch (e) {
-          console.error("Failed to parse message", e);
-        }
-      };
+        };
+      } catch (err) {
+        console.error("Immediate WebSocket creation error:", err);
+      }
     };
 
     connect();
