@@ -31,21 +31,18 @@ function App() {
 
   const getDiceBearAvatar = (name: string) => `https://api.dicebear.com/7.x/avataaars/svg?seed=${name || 'default'}`;
 
-  // Auto-detect backend URL based on current environment
+  // Auto-detect environment
   const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
   
-  // Specific Render backend URL provided by user
-  const prodBaseUrl = 'chat-realtime-backend-ky91.onrender.com';
-  
-  // Construct URLs carefully to ensure /ws is always present
-  const API_URL = import.meta.env.VITE_API_URL || (isLocal ? 'http://127.0.0.1:8000' : `https://${prodBaseUrl}`);
-  const baseWsUrl = isLocal ? 'ws://127.0.0.1:8000' : `wss://${prodBaseUrl}`;
-  const WS_URL = import.meta.env.VITE_WS_URL || `${baseWsUrl.replace(/\/$/, '')}/ws`;
+  // HARDCODED URLs for reliability
+  const API_URL = isLocal ? 'http://127.0.0.1:8000' : 'https://chat-realtime-backend-ky91.onrender.com';
+  const WS_URL = isLocal ? 'ws://127.0.0.1:8000/ws' : 'wss://chat-realtime-backend-ky91.onrender.com/ws';
 
   useEffect(() => {
     if (!isLoggedIn) return;
 
-    console.log("Starting WebSocket connection to:", WS_URL);
+    console.log("!!! ATTENTION: WebSocket is starting !!!");
+    console.log("TARGET URL:", WS_URL);
     let socket: WebSocket;
     
     const connect = () => {
