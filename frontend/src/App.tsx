@@ -28,6 +28,13 @@ function App() {
   
   const ws = useRef<WebSocket | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const notificationSound = useRef<HTMLAudioElement | null>(null);
+
+  useEffect(() => {
+    // Initialize notification sound
+    notificationSound.current = new Audio('https://assets.mixkit.co/active_storage/sfx/2354/2354-preview.mp3');
+    notificationSound.current.volume = 0.5;
+  }, []);
 
   const getDiceBearAvatar = (name: string) => `https://api.dicebear.com/7.x/avataaars/svg?seed=${name || 'default'}`;
 
@@ -84,6 +91,10 @@ function App() {
             console.log("Message received from server:", data.type);
             if (data.type === 'message') {
               setMessages(prev => [...prev, data]);
+              // Play sound if message is from someone else
+              if (data.username !== username && notificationSound.current) {
+                notificationSound.current.play().catch(e => console.log("Audio play failed:", e));
+              }
             } else if (data.type === 'user_list') {
               setUsers(data.users);
             }
