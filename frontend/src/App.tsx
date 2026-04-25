@@ -37,8 +37,10 @@ function App() {
   // Specific Render backend URL provided by user
   const prodBaseUrl = 'chat-realtime-backend-ky91.onrender.com';
   
+  // Construct URLs carefully to ensure /ws is always present
   const API_URL = import.meta.env.VITE_API_URL || (isLocal ? 'http://127.0.0.1:8000' : `https://${prodBaseUrl}`);
-  const WS_URL = import.meta.env.VITE_WS_URL || (isLocal ? 'ws://127.0.0.1:8000/ws' : `wss://${prodBaseUrl}/ws`);
+  const baseWsUrl = isLocal ? 'ws://127.0.0.1:8000' : `wss://${prodBaseUrl}`;
+  const WS_URL = import.meta.env.VITE_WS_URL || `${baseWsUrl.replace(/\/$/, '')}/ws`;
 
   useEffect(() => {
     if (!isLoggedIn) return;
