@@ -168,14 +168,25 @@ function App() {
 
   const sendMessage = (e: React.FormEvent) => {
     e.preventDefault();
-    if (inputMessage.trim() && ws.current?.readyState === WebSocket.OPEN) {
+    console.log("Attempting to send message. Input:", inputMessage);
+    console.log("WebSocket current state:", ws.current?.readyState);
+
+    if (!inputMessage.trim()) return;
+
+    if (ws.current?.readyState === WebSocket.OPEN) {
       ws.current.send(JSON.stringify({
         type: 'message',
         username: username,
         avatar: avatar,
         text: inputMessage
       }));
+      console.log("Message sent successfully");
       setInputMessage('');
+    } else {
+      const stateNames = ["CONNECTING", "OPEN", "CLOSING", "CLOSED"];
+      const currentState = ws.current ? stateNames[ws.current.readyState] : "NULL";
+      console.error("Cannot send message: WebSocket is not OPEN. Current state:", currentState);
+      setError(`Cannot send: Server connection is ${currentState}. Please wait...`);
     }
   };
 
