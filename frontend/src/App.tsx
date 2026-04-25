@@ -43,7 +43,6 @@ function App() {
 
     console.log("!!! ATTENTION: WebSocket is starting !!!");
     console.log("TARGET URL:", WS_URL);
-    let socket: WebSocket;
     
     const connect = () => {
       try {
