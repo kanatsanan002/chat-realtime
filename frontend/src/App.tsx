@@ -2,9 +2,12 @@ import { useState, useEffect, useRef } from 'react';
 import './App.css';
 
 interface Message {
+  id?: string;
   username: string;
   text: string;
   avatar: string;
+  timestamp?: string;
+  isRead?: boolean;
   type?: string;
 }
 
@@ -90,11 +93,23 @@ function App() {
             const data = JSON.parse(event.data);
             console.log("Message received from server:", data.type);
             if (data.type === 'message') {
-              setMessages(prev => [...prev, data]);
+              setMessages(prev => [...prev, { ...data, isRead: false }]);
               // Play sound if message is from someone else
-              if (data.username !== username && notificationSound.current) {
-                notificationSound.current.play().catch(e => console.log("Audio play failed:", e));
+              if (data.username !== username) {
+                if (notificationSound.current) {
+                  notificationSound.current.play().catch(e => console.log("Audio play failed:", e));
+                }
+                // Send read receipt back to server
+                socket.send(JSON.stringify({
+                  type: 'read_receipt',
+                  messageId: data.id,
+                  reader: username
+                }));
               }
+            } else if (data.type === 'read_receipt') {
+              setMessages(prev => prev.map(msg => 
+                msg.id === data.messageId ? { ...msg, isRead: true } : msg
+              ));
             } else if (data.type === 'user_list') {
               setUsers(data.users);
             }
@@ -302,6 +317,10 @@ function App() {
                   )}
                   <div className="message-bubble">
                     {msg.text}
+                    <div className="message-info">
+                      <span className="message-time">{msg.timestamp}</span>
+                      {isSelf && msg.isRead && <span className="read-status">อ่านแล้ว</span>}
+                    </div>
                   </div>
                 </div>
               );

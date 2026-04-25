@@ -158,6 +158,12 @@ async def websocket_endpoint(websocket: WebSocket):
             
             elif data["type"] == "message":
                 print(f"Message from {data['username']}: {data['text']}")
+                # Add server-side timestamp and unique ID
+                data["timestamp"] = datetime.now().strftime("%H:%M")
+                data["id"] = f"{data['username']}-{datetime.now().timestamp()}"
+                await manager.broadcast(data)
+                
+            elif data["type"] == "read_receipt":
                 await manager.broadcast(data)
                 
             elif data["type"] == "profile_update":

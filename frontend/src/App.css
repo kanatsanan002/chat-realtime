@@ -421,6 +421,29 @@
   line-height: 1.4;
   word-wrap: break-word;
   box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+  position: relative;
+}
+
+.message-info {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.7rem;
+  margin-top: 0.25rem;
+  justify-content: flex-end;
+  opacity: 0.8;
+}
+
+.self .message-info {
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.other .message-info {
+  color: #6b7280;
+}
+
+.read-status {
+  font-weight: 600;
 }
 
 .self .message-bubble {
