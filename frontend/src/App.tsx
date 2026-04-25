@@ -31,40 +31,70 @@ function App() {
 
   const getDiceBearAvatar = (name: string) => `https://api.dicebear.com/7.x/avataaars/svg?seed=${name || 'default'}`;
 
-  const API_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8080';
-  const WS_URL = import.meta.env.VITE_WS_URL || 'ws://127.0.0.1:8080/ws';
+  // Auto-detect backend URL based on current environment
+  const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+  
+  // Specific Render backend URL provided by user
+  const prodBaseUrl = 'chat-realtime-backend-ky91.onrender.com';
+  
+  const API_URL = import.meta.env.VITE_API_URL || (isLocal ? 'http://127.0.0.1:8000' : `https://${prodBaseUrl}`);
+  const WS_URL = import.meta.env.VITE_WS_URL || (isLocal ? 'ws://127.0.0.1:8000/ws' : `wss://${prodBaseUrl}/ws`);
 
   useEffect(() => {
     if (!isLoggedIn) return;
 
-    ws.current = new WebSocket(WS_URL);
+    let socket: WebSocket;
+    
+    const connect = () => {
+      socket = new WebSocket(WS_URL);
+      ws.current = socket;
 
-    ws.current.onopen = () => {
-      setIsConnected(true);
-      ws.current?.send(JSON.stringify({
-        type: 'join',
-        username: username,
-        avatar: avatar
-      }));
-    };
-    
-    ws.current.onclose = () => setIsConnected(false);
-    
-    ws.current.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        if (data.type === 'message') {
-          setMessages(prev => [...prev, data]);
-        } else if (data.type === 'user_list') {
-          setUsers(data.users);
+      socket.onopen = () => {
+        setIsConnected(true);
+        setError('');
+        socket.send(JSON.stringify({
+          type: 'join',
+          username: username,
+          avatar: avatar
+        }));
+      };
+      
+      socket.onclose = () => {
+        setIsConnected(false);
+        // Try to reconnect after 3 seconds
+        setTimeout(() => {
+          if (isLoggedIn) {
+            console.log("Attempting to reconnect...");
+            connect();
+          }
+        }, 3000);
+      };
+
+      socket.onerror = (err) => {
+        console.error("WebSocket error:", err);
+        setError("Connection error. Is the backend running?");
+      };
+      
+      socket.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          if (data.type === 'message') {
+            setMessages(prev => [...prev, data]);
+          } else if (data.type === 'user_list') {
+            setUsers(data.users);
+          }
+        } catch (e) {
+          console.error("Failed to parse message", e);
         }
-      } catch (e) {
-        console.error("Failed to parse message", e);
-      }
+      };
     };
+
+    connect();
 
     return () => {
-      ws.current?.close();
+      if (socket) {
+        socket.close();
+      }
     };
   }, [isLoggedIn, username, avatar]);
 

@@ -132,11 +132,17 @@ manager = ConnectionManager()
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     await manager.connect(websocket)
+    print(f"Client connected: {websocket.client}")
     try:
         while True:
-            data = await websocket.receive_json()
+            try:
+                data = await websocket.receive_json()
+            except json.JSONDecodeError:
+                print("Received invalid JSON")
+                continue
             
             if data["type"] == "join":
+                print(f"User joined: {data['username']}")
                 manager.users = [u for u in manager.users if u["username"] != data["username"]]
                 manager.users.append({
                     "username": data["username"],
@@ -146,14 +152,20 @@ async def websocket_endpoint(websocket: WebSocket):
                 await manager.update_user_list()
             
             elif data["type"] == "message":
+                print(f"Message from {data['username']}: {data['text']}")
                 await manager.broadcast(data)
                 
             elif data["type"] == "profile_update":
+                print(f"Profile update for {data['username']}")
                 for u in manager.users:
                     if u["username"] == data["username"]:
                         u["avatar"] = data["avatar"]
                 await manager.update_user_list()
                 
     except WebSocketDisconnect:
+        print("Client disconnected")
+    except Exception as e:
+        print(f"Unexpected error: {e}")
+    finally:
         manager.disconnect(websocket)
         await manager.update_user_list()
