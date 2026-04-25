@@ -7,7 +7,7 @@ from pydantic import BaseModel
 from typing import List, Optional
 import json
 import bcrypt
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 
 # Database Setup
 SQLALCHEMY_DATABASE_URL = "sqlite:///./chat.db"
@@ -62,6 +62,11 @@ def hash_password(password: str):
 def verify_password(password: str, hashed_password: str):
     return bcrypt.checkpw(password.encode('utf-8'), hashed_password.encode('utf-8'))
 
+# Helper for Thailand Time
+def get_thailand_time():
+    tz = timezone(timedelta(hours=7))
+    return datetime.now(tz).strftime("%H:%M")
+
 # FastAPI App
 app = FastAPI()
 
@@ -73,18 +78,15 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Root Endpoint
 @app.get("/")
 def read_root():
     return {"status": "ok", "message": "Chat Backend is running"}
 
-# Message History Endpoint
 @app.get("/messages")
 def get_messages(db: Session = Depends(get_db)):
     messages = db.query(MessageDB).order_by(MessageDB.id.desc()).limit(50).all()
     return [{"username": m.username, "text": m.text, "avatar": m.avatar, "timestamp": m.timestamp, "id": str(m.id)} for m in reversed(messages)]
 
-# Auth Endpoints
 @app.post("/register")
 def register(user: UserCreate, db: Session = Depends(get_db)):
     db_user = db.query(UserDB).filter(UserDB.username == user.username).first()
@@ -122,7 +124,6 @@ def update_profile(user_data: UserResponse, db: Session = Depends(get_db)):
     db.commit()
     return {"message": "Profile updated", "avatar": db_user.avatar}
 
-# WebSocket Logic
 class ConnectionManager:
     def __init__(self):
         self.active_connections: List[WebSocket] = []
@@ -171,7 +172,7 @@ async def websocket_endpoint(websocket: WebSocket):
                 await manager.update_user_list()
             
             elif data["type"] == "message":
-                timestamp = datetime.now().strftime("%H:%M")
+                timestamp = get_thailand_time()
                 new_msg = MessageDB(
                     username=data["username"],
                     text=data["text"],
