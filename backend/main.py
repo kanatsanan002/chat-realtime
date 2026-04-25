@@ -21,6 +21,14 @@ class UserDB(Base):
     password_hash = Column(String)
     avatar = Column(String)
 
+class MessageDB(Base):
+    __tablename__ = "messages"
+    id = Column(Integer, primary_key=True, index=True)
+    username = Column(String)
+    text = Column(String)
+    avatar = Column(String)
+    timestamp = Column(String)
+
 Base.metadata.create_all(bind=engine)
 
 # Pydantic Models
@@ -37,6 +45,10 @@ class UserResponse(BaseModel):
     username: str
     avatar: str
 
+from datetime import datetime
+
+# ... (rest of code before FastAPI app)
+
 # FastAPI App
 app = FastAPI()
 
@@ -44,6 +56,12 @@ app = FastAPI()
 @app.get("/")
 def read_root():
     return {"status": "ok", "message": "Chat Backend is running"}
+
+@app.get("/messages")
+def get_messages(db: Session = Depends(get_db)):
+    messages = db.query(MessageDB).order_by(MessageDB.id.desc()).limit(50).all()
+    # Reverse to get chronological order
+    return [{"username": m.username, "text": m.text, "avatar": m.avatar, "timestamp": m.timestamp, "id": str(m.id)} for m in reversed(messages)]
 
 app.add_middleware(
     CORSMiddleware,
@@ -137,6 +155,7 @@ manager = ConnectionManager()
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     await manager.connect(websocket)
+    db = SessionLocal() # Create db session for this connection
     print(f"Client connected: {websocket.client}")
     try:
         while True:
@@ -158,9 +177,22 @@ async def websocket_endpoint(websocket: WebSocket):
             
             elif data["type"] == "message":
                 print(f"Message from {data['username']}: {data['text']}")
-                # Add server-side timestamp and unique ID
-                data["timestamp"] = datetime.now().strftime("%H:%M")
-                data["id"] = f"{data['username']}-{datetime.now().timestamp()}"
+                timestamp = datetime.now().strftime("%H:%M")
+                
+                # Save to database
+                new_msg = MessageDB(
+                    username=data["username"],
+                    text=data["text"],
+                    avatar=data["avatar"],
+                    timestamp=timestamp
+                )
+                db.add(new_msg)
+                db.commit()
+                db.refresh(new_msg)
+
+                # Add metadata for broadcast
+                data["timestamp"] = timestamp
+                data["id"] = str(new_msg.id)
                 await manager.broadcast(data)
                 
             elif data["type"] == "read_receipt":

@@ -51,6 +51,21 @@ function App() {
   useEffect(() => {
     if (!isLoggedIn) return;
 
+    // Fetch message history
+    const fetchHistory = async () => {
+      try {
+        const response = await fetch(`${API_URL}/messages`);
+        if (response.ok) {
+          const data = await response.json();
+          setMessages(data);
+        }
+      } catch (err) {
+        console.error("Failed to fetch history");
+      }
+    };
+
+    fetchHistory();
+
     console.log("!!! ATTENTION: WebSocket is starting !!!");
     console.log("TARGET URL:", WS_URL);
     
