@@ -9,6 +9,7 @@ interface Message {
   timestamp?: string;
   isRead?: boolean;
   type?: string;
+  room_id?: string;
 }
 
 interface User {
@@ -28,33 +29,40 @@ function App() {
   const [users, setUsers] = useState<User[]>([]);
   const [error, setError] = useState('');
   const [showSettings, setShowSettings] = useState(false);
+  const [currentRoom, setCurrentRoom] = useState('global');
+  const [selectedUser, setSelectedUser] = useState<User | null>(null);
   
   const ws = useRef<WebSocket | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const notificationSound = useRef<HTMLAudioElement | null>(null);
 
+  // Auto-detect environment
+  const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+  const API_URL = isLocal ? 'http://127.0.0.1:8000' : 'https://chat-realtime-backend-ky91.onrender.com';
+  const WS_URL = isLocal ? 'ws://127.0.0.1:8000/ws' : 'wss://chat-realtime-backend-ky91.onrender.com/ws';
+
+  const getDiceBearAvatar = (name: string) => `https://api.dicebear.com/7.x/avataaars/svg?seed=${name || 'default'}`;
+
+  // 1. Restore Login State
   useEffect(() => {
-    // Initialize notification sound
+    const savedUser = localStorage.getItem('chat_user');
+    if (savedUser) {
+      const parsedUser = JSON.parse(savedUser);
+      setUsername(parsedUser.username);
+      setAvatar(parsedUser.avatar);
+      setIsLoggedIn(true);
+    }
     notificationSound.current = new Audio('https://assets.mixkit.co/active_storage/sfx/2354/2354-preview.mp3');
     notificationSound.current.volume = 0.5;
   }, []);
 
-  const getDiceBearAvatar = (name: string) => `https://api.dicebear.com/7.x/avataaars/svg?seed=${name || 'default'}`;
-
-  // Auto-detect environment
-  const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-  
-  // HARDCODED URLs for reliability
-  const API_URL = isLocal ? 'http://127.0.0.1:8000' : 'https://chat-realtime-backend-ky91.onrender.com';
-  const WS_URL = isLocal ? 'ws://127.0.0.1:8000/ws' : 'wss://chat-realtime-backend-ky91.onrender.com/ws';
-
+  // 2. Fetch History when room changes
   useEffect(() => {
     if (!isLoggedIn) return;
 
-    // Fetch message history
     const fetchHistory = async () => {
       try {
-        const response = await fetch(`${API_URL}/messages`);
+        const response = await fetch(`${API_URL}/messages/${currentRoom}`);
         if (response.ok) {
           const data = await response.json();
           setMessages(data);
@@ -65,21 +73,22 @@ function App() {
     };
 
     fetchHistory();
+  }, [isLoggedIn, currentRoom]);
 
-    console.log("!!! ATTENTION: WebSocket is starting !!!");
-    console.log("TARGET URL:", WS_URL);
-    
+  // 3. WebSocket Connection
+  useEffect(() => {
+    if (!isLoggedIn) return;
+
     let activeSocket: WebSocket | null = null;
     
     const connect = () => {
       try {
-        console.log("Attempting to connect to:", WS_URL);
+        console.log("Connecting to WebSocket:", WS_URL);
         const socket = new WebSocket(WS_URL);
         activeSocket = socket;
         ws.current = socket;
 
         socket.onopen = () => {
-          console.log("WebSocket Connection Opened (OPEN)");
           setIsConnected(true);
           setError('');
           socket.send(JSON.stringify({
@@ -89,62 +98,44 @@ function App() {
           }));
         };
       
-        socket.onclose = (event) => {
-          console.log("WebSocket Connection Closed. Code:", event.code, "Reason:", event.reason);
+        socket.onclose = () => {
           setIsConnected(false);
-          if (isLoggedIn) {
-            console.log("Scheduling reconnection in 3s...");
-            setTimeout(connect, 3000);
-          }
+          if (isLoggedIn) setTimeout(connect, 3000);
         };
 
-        socket.onerror = (err) => {
-          console.error("WebSocket transport error observed:", err);
-          setError("Connection error. Is the backend running?");
-        };
+        socket.onerror = () => setError("Connection error. Server may be down.");
         
         socket.onmessage = (event) => {
           try {
             const data = JSON.parse(event.data);
-            console.log("Message received from server:", data.type);
             if (data.type === 'message') {
-              setMessages(prev => [...prev, { ...data, isRead: false }]);
-              // Play sound if message is from someone else
-              if (data.username !== username) {
-                if (notificationSound.current) {
-                  notificationSound.current.play().catch(e => console.log("Audio play failed:", e));
+              // Only add to messages if it's for the current room
+              if (data.room_id === currentRoom) {
+                setMessages(prev => [...prev, data]);
+                if (data.username !== username && notificationSound.current) {
+                  notificationSound.current.play().catch(() => {});
                 }
-                // Send read receipt back to server
-                socket.send(JSON.stringify({
-                  type: 'read_receipt',
-                  messageId: data.id,
-                  reader: username
-                }));
+              } else {
+                // Background notification logic could go here
+                if (data.username !== username && notificationSound.current) {
+                   notificationSound.current.play().catch(() => {});
+                }
               }
-            } else if (data.type === 'read_receipt') {
-              setMessages(prev => prev.map(msg => 
-                msg.id === data.messageId ? { ...msg, isRead: true } : msg
-              ));
             } else if (data.type === 'user_list') {
               setUsers(data.users);
             }
           } catch (e) {
-            console.error("Failed to parse message", e);
+            console.error("Message parse error", e);
           }
         };
       } catch (err) {
-        console.error("Immediate WebSocket creation error:", err);
+        console.error("WS Creation error", err);
       }
     };
 
     connect();
-
-    return () => {
-      if (activeSocket) {
-        activeSocket.close();
-      }
-    };
-  }, [isLoggedIn, username, avatar]);
+    return () => activeSocket?.close();
+  }, [isLoggedIn, username, avatar, currentRoom]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -170,6 +161,7 @@ function App() {
         setPassword('');
         setError('Registration successful! Please login.');
       } else {
+        localStorage.setItem('chat_user', JSON.stringify({ username: data.username, avatar: data.avatar }));
         setUsername(data.username);
         setAvatar(data.avatar);
         setIsLoggedIn(true);
@@ -180,6 +172,7 @@ function App() {
   };
 
   const handleLogout = () => {
+    localStorage.removeItem('chat_user');
     setIsLoggedIn(false);
     setUsername('');
     setPassword('');
@@ -187,32 +180,19 @@ function App() {
     ws.current?.close();
   };
 
-  const updateAvatar = async () => {
-    const newAvatar = getDiceBearAvatar(Math.random().toString());
-    try {
-      const response = await fetch(`${API_URL}/profile`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, avatar: newAvatar })
-      });
-      if (response.ok) {
-        setAvatar(newAvatar);
-        ws.current?.send(JSON.stringify({
-          type: 'profile_update',
-          username: username,
-          avatar: newAvatar
-        }));
-      }
-    } catch (err) {
-      console.error("Failed to update avatar");
+  const selectChat = (user: User | null) => {
+    setSelectedUser(user);
+    if (!user) {
+      setCurrentRoom('global');
+    } else {
+      // Create a unique room ID for private chat (sorted usernames)
+      const sortedUsers = [username, user.username].sort();
+      setCurrentRoom(`private_${sortedUsers[0]}_${sortedUsers[1]}`);
     }
   };
 
   const sendMessage = (e: React.FormEvent) => {
     e.preventDefault();
-    console.log("Attempting to send message. Input:", inputMessage);
-    console.log("WebSocket current state:", ws.current?.readyState);
-
     if (!inputMessage.trim()) return;
 
     if (ws.current?.readyState === WebSocket.OPEN) {
@@ -220,15 +200,12 @@ function App() {
         type: 'message',
         username: username,
         avatar: avatar,
-        text: inputMessage
+        text: inputMessage,
+        room_id: currentRoom
       }));
-      console.log("Message sent successfully");
       setInputMessage('');
     } else {
-      const stateNames = ["CONNECTING", "OPEN", "CLOSING", "CLOSED"];
-      const currentState = ws.current ? stateNames[ws.current.readyState] : "NULL";
-      console.error("Cannot send message: WebSocket is not OPEN. Current state:", currentState);
-      setError(`Cannot send: Server connection is ${currentState}. Please wait...`);
+      setError("Not connected to server.");
     }
   };
 
@@ -239,23 +216,9 @@ function App() {
           <h1>{isRegisterMode ? 'Create Account' : 'Welcome Back'}</h1>
           {error && <div className={`auth-message ${error.includes('successful') ? 'success' : 'error'}`}>{error}</div>}
           <form onSubmit={handleAuth}>
-            <input
-              type="text"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              placeholder="Username"
-              required
-            />
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="Password"
-              required
-            />
-            <button type="submit">
-              {isRegisterMode ? 'Register' : 'Login'}
-            </button>
+            <input type="text" value={username} onChange={(e) => setUsername(e.target.value)} placeholder="Username" required />
+            <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Password" required />
+            <button type="submit">{isRegisterMode ? 'Register' : 'Login'}</button>
           </form>
           <p className="auth-toggle">
             {isRegisterMode ? 'Already have an account?' : "Don't have an account?"}
@@ -271,14 +234,17 @@ function App() {
   return (
     <div className="app-layout">
       <aside className="users-sidebar">
-        <div className="sidebar-header">
-          Online Users ({users.length})
-        </div>
+        <div className="sidebar-header">Chat Rooms</div>
         <div className="users-list">
-          {users.map((u, i) => (
-            <div key={i} className={`user-item ${u.username === username ? 'me' : ''}`}>
+          <div className={`user-item ${currentRoom === 'global' ? 'me' : ''}`} onClick={() => selectChat(null)}>
+            <div className="global-icon">🌍</div>
+            <span>Global Chat</span>
+          </div>
+          <div className="sidebar-divider">Direct Messages</div>
+          {users.filter(u => u.username !== username).map((u, i) => (
+            <div key={i} className={`user-item ${selectedUser?.username === u.username ? 'me' : ''}`} onClick={() => selectChat(u)}>
               <img src={u.avatar} alt={u.username} className="user-avatar-small" />
-              <span>{u.username} {u.username === username ? '(You)' : ''}</span>
+              <span>{u.username}</span>
               <div className="online-indicator"></div>
             </div>
           ))}
@@ -291,34 +257,16 @@ function App() {
       <div className="chat-container">
         <header className="chat-header">
           <div className="user-info">
-            <div className="profile-trigger" onClick={() => setShowSettings(!showSettings)}>
-              <img src={avatar} alt="My Avatar" className="my-avatar-header" title="Change Profile" />
-              <div className="edit-overlay">Edit</div>
-            </div>
-            <div>
-              <h1>Real-time Chat</h1>
-              <span className="current-user">Logged as <strong>{username}</strong></span>
-            </div>
+            <h1>{selectedUser ? `Chat with ${selectedUser.username}` : 'Global Chat'}</h1>
           </div>
           <span className={`status ${isConnected ? 'connected' : 'disconnected'}`}>
             {isConnected ? 'Connected' : 'Disconnected'}
           </span>
         </header>
 
-        {showSettings && (
-          <div className="settings-panel">
-            <h3>Profile Settings</h3>
-            <div className="settings-avatar-group">
-              <img src={avatar} alt="Current Avatar" />
-              <button onClick={updateAvatar}>Randomize Avatar</button>
-            </div>
-            <button onClick={() => setShowSettings(false)} className="close-settings">Done</button>
-          </div>
-        )}
-
         <div className="messages-container">
           {messages.length === 0 ? (
-            <div className="empty-state">No messages yet. Start chatting!</div>
+            <div className="empty-state">No messages here yet. Say hi!</div>
           ) : (
             messages.map((msg, index) => {
               const isSelf = msg.username === username;
@@ -334,7 +282,6 @@ function App() {
                     {msg.text}
                     <div className="message-info">
                       <span className="message-time">{msg.timestamp}</span>
-                      {isSelf && msg.isRead && <span className="read-status">อ่านแล้ว</span>}
                     </div>
                   </div>
                 </div>
@@ -349,11 +296,9 @@ function App() {
             type="text"
             value={inputMessage}
             onChange={(e) => setInputMessage(e.target.value)}
-            placeholder={isConnected ? "Type a message..." : "Connecting to server..."}
+            placeholder={isConnected ? "Type a message..." : "Connecting..."}
           />
-          <button type="submit" disabled={!inputMessage.trim()}>
-            Send
-          </button>
+          <button type="submit" disabled={!inputMessage.trim()}>Send</button>
         </form>
       </div>
     </div>

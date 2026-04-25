@@ -1,6 +1,6 @@
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Depends, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy import Column, Integer, String, create_engine
+from sqlalchemy import Column, Integer, String, create_engine, and_, or_
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
 from pydantic import BaseModel
@@ -25,6 +25,7 @@ class UserDB(Base):
 class MessageDB(Base):
     __tablename__ = "messages"
     id = Column(Integer, primary_key=True, index=True)
+    room_id = Column(String, index=True) # Added room_id for channels
     username = Column(String)
     text = Column(String)
     avatar = Column(String)
@@ -54,7 +55,7 @@ def get_db():
     finally:
         db.close()
 
-# Helper functions for auth
+# Helper functions
 def hash_password(password: str):
     salt = bcrypt.gensalt()
     return bcrypt.hashpw(password.encode('utf-8'), salt).decode('utf-8')
@@ -62,7 +63,6 @@ def hash_password(password: str):
 def verify_password(password: str, hashed_password: str):
     return bcrypt.checkpw(password.encode('utf-8'), hashed_password.encode('utf-8'))
 
-# Helper for Thailand Time
 def get_thailand_time():
     tz = timezone(timedelta(hours=7))
     return datetime.now(tz).strftime("%H:%M")
@@ -82,10 +82,11 @@ app.add_middleware(
 def read_root():
     return {"status": "ok", "message": "Chat Backend is running"}
 
-@app.get("/messages")
-def get_messages(db: Session = Depends(get_db)):
-    messages = db.query(MessageDB).order_by(MessageDB.id.desc()).limit(50).all()
-    return [{"username": m.username, "text": m.text, "avatar": m.avatar, "timestamp": m.timestamp, "id": str(m.id)} for m in reversed(messages)]
+# Get messages for a specific room
+@app.get("/messages/{room_id}")
+def get_messages(room_id: str, db: Session = Depends(get_db)):
+    messages = db.query(MessageDB).filter(MessageDB.room_id == room_id).order_by(MessageDB.id.desc()).limit(50).all()
+    return [{"username": m.username, "text": m.text, "avatar": m.avatar, "timestamp": m.timestamp, "id": str(m.id), "room_id": m.room_id} for m in reversed(messages)]
 
 @app.post("/register")
 def register(user: UserCreate, db: Session = Depends(get_db)):
@@ -114,16 +115,7 @@ def login(user: UserLogin, db: Session = Depends(get_db)):
         "avatar": db_user.avatar
     }
 
-@app.put("/profile")
-def update_profile(user_data: UserResponse, db: Session = Depends(get_db)):
-    db_user = db.query(UserDB).filter(UserDB.username == user_data.username).first()
-    if not db_user:
-        raise HTTPException(status_code=404, detail="User not found")
-    
-    db_user.avatar = user_data.avatar
-    db.commit()
-    return {"message": "Profile updated", "avatar": db_user.avatar}
-
+# WebSocket Logic
 class ConnectionManager:
     def __init__(self):
         self.active_connections: List[WebSocket] = []
@@ -173,7 +165,11 @@ async def websocket_endpoint(websocket: WebSocket):
             
             elif data["type"] == "message":
                 timestamp = get_thailand_time()
+                # Use provided room_id or default to 'global'
+                room_id = data.get("room_id", "global")
+                
                 new_msg = MessageDB(
+                    room_id=room_id,
                     username=data["username"],
                     text=data["text"],
                     avatar=data["avatar"],
@@ -185,16 +181,11 @@ async def websocket_endpoint(websocket: WebSocket):
                 
                 data["timestamp"] = timestamp
                 data["id"] = str(new_msg.id)
+                data["room_id"] = room_id
                 await manager.broadcast(data)
                 
             elif data["type"] == "read_receipt":
                 await manager.broadcast(data)
-                
-            elif data["type"] == "profile_update":
-                for u in manager.users:
-                    if u["username"] == data["username"]:
-                        u["avatar"] = data["avatar"]
-                await manager.update_user_list()
                 
     except WebSocketDisconnect:
         pass
