@@ -44,10 +44,13 @@ function App() {
     console.log("!!! ATTENTION: WebSocket is starting !!!");
     console.log("TARGET URL:", WS_URL);
     
+    let activeSocket: WebSocket | null = null;
+    
     const connect = () => {
       try {
         console.log("Attempting to connect to:", WS_URL);
         const socket = new WebSocket(WS_URL);
+        activeSocket = socket;
         ws.current = socket;
 
         socket.onopen = () => {
@@ -96,8 +99,8 @@ function App() {
     connect();
 
     return () => {
-      if (socket) {
-        socket.close();
+      if (activeSocket) {
+        activeSocket.close();
       }
     };
   }, [isLoggedIn, username, avatar]);
