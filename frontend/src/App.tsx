@@ -31,11 +31,13 @@ function App() {
   const [currentRoom, setCurrentRoom] = useState('global');
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
   const [notifications, setNotifications] = useState<{[key: string]: number}>({});
+  const [typingUsers, setTypingUsers] = useState<string[]>([]);
   
   const ws = useRef<WebSocket | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const notificationSound = useRef<HTMLAudioElement | null>(null);
   const roomRef = useRef('global');
+  const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     roomRef.current = currentRoom;
@@ -116,6 +118,14 @@ function App() {
             if (data.username !== username && notificationSound.current) {
               notificationSound.current.play().catch(() => {});
             }
+          } else if (data.type === 'typing') {
+            if (data.room_id === roomRef.current && data.username !== username) {
+              if (data.isTyping) {
+                setTypingUsers(prev => prev.includes(data.username) ? prev : [...prev, data.username]);
+              } else {
+                setTypingUsers(prev => prev.filter(u => u !== data.username));
+              }
+            }
           } else if (data.type === 'user_list') {
             setUsers(data.users);
           }
@@ -165,16 +175,39 @@ function App() {
 
   const selectChat = (user: User | null) => {
     setSelectedUser(user);
-    setMessages([]); // Clear current view
-    
+    setMessages([]);
     let newRoom = 'global';
     if (user) {
       const sortedUsers = [username, user.username].sort();
       newRoom = `private_${sortedUsers[0]}_${sortedUsers[1]}`;
     }
-    
     setCurrentRoom(newRoom);
     setNotifications(prev => ({ ...prev, [newRoom]: 0 }));
+    setTypingUsers([]);
+  };
+
+  const sendTypingStatus = (isTyping: boolean) => {
+    if (ws.current?.readyState === WebSocket.OPEN) {
+      ws.current.send(JSON.stringify({
+        type: 'typing',
+        username: username,
+        room_id: currentRoom,
+        isTyping: isTyping
+      }));
+    }
+  };
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setInputMessage(e.target.value);
+    
+    // Send typing start
+    sendTypingStatus(true);
+
+    // Debounce typing stop
+    if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+    typingTimeoutRef.current = setTimeout(() => {
+      sendTypingStatus(false);
+    }, 2000);
   };
 
   const sendMessage = (e: React.FormEvent) => {
@@ -188,6 +221,7 @@ function App() {
         text: inputMessage,
         room_id: currentRoom
       }));
+      sendTypingStatus(false); // Stop typing after sending
       setInputMessage('');
     }
   };
@@ -278,11 +312,22 @@ function App() {
           <div ref={messagesEndRef} />
         </div>
 
+        {typingUsers.length > 0 && (
+          <div className="typing-indicator-container">
+            <div className="typing-bubble">
+              <span className="dot"></span>
+              <span className="dot"></span>
+              <span className="dot"></span>
+            </div>
+            <span className="typing-text">{typingUsers.join(', ')} is typing...</span>
+          </div>
+        )}
+
         <form className="input-form" onSubmit={sendMessage}>
           <input
             type="text"
             value={inputMessage}
-            onChange={(e) => setInputMessage(e.target.value)}
+            onChange={handleInputChange}
             placeholder={isConnected ? "Type a message..." : "Connecting..."}
           />
           <button type="submit" disabled={!inputMessage.trim()}>Send</button>

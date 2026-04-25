@@ -25,7 +25,7 @@ class UserDB(Base):
 class MessageDB(Base):
     __tablename__ = "messages"
     id = Column(Integer, primary_key=True, index=True)
-    room_id = Column(String, index=True) # Added room_id for channels
+    room_id = Column(String, index=True)
     username = Column(String)
     text = Column(String)
     avatar = Column(String)
@@ -82,7 +82,6 @@ app.add_middleware(
 def read_root():
     return {"status": "ok", "message": "Chat Backend is running"}
 
-# Get messages for a specific room
 @app.get("/messages/{room_id}")
 def get_messages(room_id: str, db: Session = Depends(get_db)):
     messages = db.query(MessageDB).filter(MessageDB.room_id == room_id).order_by(MessageDB.id.desc()).limit(50).all()
@@ -115,7 +114,6 @@ def login(user: UserLogin, db: Session = Depends(get_db)):
         "avatar": db_user.avatar
     }
 
-# WebSocket Logic
 class ConnectionManager:
     def __init__(self):
         self.active_connections: List[WebSocket] = []
@@ -165,9 +163,7 @@ async def websocket_endpoint(websocket: WebSocket):
             
             elif data["type"] == "message":
                 timestamp = get_thailand_time()
-                # Use provided room_id or default to 'global'
                 room_id = data.get("room_id", "global")
-                
                 new_msg = MessageDB(
                     room_id=room_id,
                     username=data["username"],
@@ -185,6 +181,9 @@ async def websocket_endpoint(websocket: WebSocket):
                 await manager.broadcast(data)
                 
             elif data["type"] == "read_receipt":
+                await manager.broadcast(data)
+
+            elif data["type"] == "typing":
                 await manager.broadcast(data)
                 
     except WebSocketDisconnect:
