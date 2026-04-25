@@ -286,10 +286,9 @@ function App() {
             type="text"
             value={inputMessage}
             onChange={(e) => setInputMessage(e.target.value)}
-            placeholder="Type a message..."
-            disabled={!isConnected}
+            placeholder={isConnected ? "Type a message..." : "Connecting to server..."}
           />
-          <button type="submit" disabled={!isConnected || !inputMessage.trim()}>
+          <button type="submit" disabled={!inputMessage.trim()}>
             Send
           </button>
         </form>
