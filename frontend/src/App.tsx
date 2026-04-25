@@ -34,13 +34,17 @@ function App() {
   const ws = useRef<WebSocket | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const notificationSound = useRef<HTMLAudioElement | null>(null);
+  const roomRef = useRef('global'); // Track current room without re-triggering useEffect
 
-  // Auto-detect environment
+  // Sync ref with state
+  useEffect(() => {
+    roomRef.current = currentRoom;
+  }, [currentRoom]);
+
   const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
   const API_URL = isLocal ? 'http://127.0.0.1:8000' : 'https://chat-realtime-backend-ky91.onrender.com';
   const WS_URL = isLocal ? 'ws://127.0.0.1:8000/ws' : 'wss://chat-realtime-backend-ky91.onrender.com/ws';
 
-  // 1. Restore Login State
   useEffect(() => {
     const savedUser = localStorage.getItem('chat_user');
     if (savedUser) {
@@ -53,10 +57,8 @@ function App() {
     notificationSound.current.volume = 0.5;
   }, []);
 
-  // 2. Fetch History when room changes
   useEffect(() => {
     if (!isLoggedIn) return;
-
     const fetchHistory = async () => {
       try {
         const response = await fetch(`${API_URL}/messages/${currentRoom}`);
@@ -68,71 +70,62 @@ function App() {
         console.error("Failed to fetch history");
       }
     };
-
     fetchHistory();
   }, [isLoggedIn, currentRoom]);
 
-  // 3. WebSocket Connection
+  // Unified WebSocket connection - only reconnect if auth info changes
   useEffect(() => {
     if (!isLoggedIn) return;
 
-    let activeSocket: WebSocket | null = null;
-    
+    let socket: WebSocket | null = null;
     const connect = () => {
-      try {
-        console.log("Connecting to WebSocket:", WS_URL);
-        const socket = new WebSocket(WS_URL);
-        activeSocket = socket;
-        ws.current = socket;
+      if (socket) socket.close();
+      console.log("Connecting to WebSocket...");
+      socket = new WebSocket(WS_URL);
+      ws.current = socket;
 
-        socket.onopen = () => {
-          setIsConnected(true);
-          setError('');
-          socket.send(JSON.stringify({
-            type: 'join',
-            username: username,
-            avatar: avatar
-          }));
-        };
+      socket.onopen = () => {
+        setIsConnected(true);
+        setError('');
+        socket?.send(JSON.stringify({
+          type: 'join',
+          username: username,
+          avatar: avatar
+        }));
+      };
       
-        socket.onclose = () => {
-          setIsConnected(false);
-          if (isLoggedIn) setTimeout(connect, 3000);
-        };
+      socket.onclose = () => {
+        setIsConnected(false);
+        if (isLoggedIn) setTimeout(connect, 3000);
+      };
 
-        socket.onerror = () => setError("Connection error. Server may be down.");
-        
-        socket.onmessage = (event) => {
-          try {
-            const data = JSON.parse(event.data);
-            if (data.type === 'message') {
-              // Only add to messages if it's for the current room
-              if (data.room_id === currentRoom) {
-                setMessages(prev => [...prev, data]);
-                if (data.username !== username && notificationSound.current) {
-                  notificationSound.current.play().catch(() => {});
-                }
-              } else {
-                // Background notification logic could go here
-                if (data.username !== username && notificationSound.current) {
-                   notificationSound.current.play().catch(() => {});
-                }
-              }
-            } else if (data.type === 'user_list') {
-              setUsers(data.users);
+      socket.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          if (data.type === 'message') {
+            // Check against REF value to ensure we have the latest room_id
+            if (data.room_id === roomRef.current) {
+              setMessages(prev => {
+                // Prevent duplicate display
+                if (prev.find(m => m.id === data.id)) return prev;
+                return [...prev, data];
+              });
             }
-          } catch (e) {
-            console.error("Message parse error", e);
+            if (data.username !== username && notificationSound.current) {
+              notificationSound.current.play().catch(() => {});
+            }
+          } else if (data.type === 'user_list') {
+            setUsers(data.users);
           }
-        };
-      } catch (err) {
-        console.error("WS Creation error", err);
-      }
+        } catch (e) {
+          console.error("Parse error", e);
+        }
+      };
     };
 
     connect();
-    return () => activeSocket?.close();
-  }, [isLoggedIn, username, avatar, currentRoom]);
+    return () => { socket?.close(); };
+  }, [isLoggedIn, username, avatar]); // Remove currentRoom from dependencies!
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -142,38 +135,29 @@ function App() {
     e.preventDefault();
     setError('');
     const endpoint = isRegisterMode ? 'register' : 'login';
-    
     try {
       const response = await fetch(`${API_URL}/${endpoint}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username, password })
       });
-
       const data = await response.json();
-      if (!response.ok) throw new Error(data.detail || 'Authentication failed');
-
+      if (!response.ok) throw new Error(data.detail || 'Auth failed');
       if (isRegisterMode) {
         setIsRegisterMode(false);
-        setPassword('');
-        setError('Registration successful! Please login.');
+        setError('Success! Please login.');
       } else {
         localStorage.setItem('chat_user', JSON.stringify({ username: data.username, avatar: data.avatar }));
         setUsername(data.username);
         setAvatar(data.avatar);
         setIsLoggedIn(true);
       }
-    } catch (err: any) {
-      setError(err.message);
-    }
+    } catch (err: any) { setError(err.message); }
   };
 
   const handleLogout = () => {
     localStorage.removeItem('chat_user');
     setIsLoggedIn(false);
-    setUsername('');
-    setPassword('');
-    setAvatar('');
     ws.current?.close();
   };
 
@@ -182,7 +166,6 @@ function App() {
     if (!user) {
       setCurrentRoom('global');
     } else {
-      // Create a unique room ID for private chat (sorted usernames)
       const sortedUsers = [username, user.username].sort();
       setCurrentRoom(`private_${sortedUsers[0]}_${sortedUsers[1]}`);
     }
@@ -191,7 +174,6 @@ function App() {
   const sendMessage = (e: React.FormEvent) => {
     e.preventDefault();
     if (!inputMessage.trim()) return;
-
     if (ws.current?.readyState === WebSocket.OPEN) {
       ws.current.send(JSON.stringify({
         type: 'message',
@@ -201,8 +183,6 @@ function App() {
         room_id: currentRoom
       }));
       setInputMessage('');
-    } else {
-      setError("Not connected to server.");
     }
   };
 
@@ -210,19 +190,16 @@ function App() {
     return (
       <div className="login-container">
         <div className="login-card">
-          <h1>{isRegisterMode ? 'Create Account' : 'Welcome Back'}</h1>
-          {error && <div className={`auth-message ${error.includes('successful') ? 'success' : 'error'}`}>{error}</div>}
+          <h1>chatweb</h1>
+          {error && <div className={`auth-message ${error.includes('Success') ? 'success' : 'error'}`}>{error}</div>}
           <form onSubmit={handleAuth}>
             <input type="text" value={username} onChange={(e) => setUsername(e.target.value)} placeholder="Username" required />
             <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Password" required />
             <button type="submit">{isRegisterMode ? 'Register' : 'Login'}</button>
           </form>
-          <p className="auth-toggle">
-            {isRegisterMode ? 'Already have an account?' : "Don't have an account?"}
-            <button onClick={() => { setIsRegisterMode(!isRegisterMode); setError(''); }}>
-              {isRegisterMode ? 'Login' : 'Register'}
-            </button>
-          </p>
+          <button className="auth-toggle" onClick={() => setIsRegisterMode(!isRegisterMode)}>
+            {isRegisterMode ? 'Switch to Login' : 'Create Account'}
+          </button>
         </div>
       </div>
     );
@@ -231,13 +208,13 @@ function App() {
   return (
     <div className="app-layout">
       <aside className="users-sidebar">
-        <div className="sidebar-header">Chat Rooms</div>
+        <div className="sidebar-header">chatweb</div>
         <div className="users-list">
           <div className={`user-item ${currentRoom === 'global' ? 'me' : ''}`} onClick={() => selectChat(null)}>
             <div className="global-icon">🌍</div>
             <span>Global Chat</span>
           </div>
-          <div className="sidebar-divider">Direct Messages</div>
+          <div className="sidebar-divider">Private Messages</div>
           {users.filter(u => u.username !== username).map((u, i) => (
             <div key={i} className={`user-item ${selectedUser?.username === u.username ? 'me' : ''}`} onClick={() => selectChat(u)}>
               <img src={u.avatar} alt={u.username} className="user-avatar-small" />
@@ -263,7 +240,7 @@ function App() {
 
         <div className="messages-container">
           {messages.length === 0 ? (
-            <div className="empty-state">No messages here yet. Say hi!</div>
+            <div className="empty-state">No messages here yet.</div>
           ) : (
             messages.map((msg, index) => {
               const isSelf = msg.username === username;
