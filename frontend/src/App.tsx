@@ -30,13 +30,13 @@ function App() {
   const [error, setError] = useState('');
   const [currentRoom, setCurrentRoom] = useState('global');
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
+  const [notifications, setNotifications] = useState<{[key: string]: number}>({});
   
   const ws = useRef<WebSocket | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const notificationSound = useRef<HTMLAudioElement | null>(null);
-  const roomRef = useRef('global'); // Track current room without re-triggering useEffect
+  const roomRef = useRef('global');
 
-  // Sync ref with state
   useEffect(() => {
     roomRef.current = currentRoom;
   }, [currentRoom]);
@@ -73,14 +73,12 @@ function App() {
     fetchHistory();
   }, [isLoggedIn, currentRoom]);
 
-  // Unified WebSocket connection - only reconnect if auth info changes
   useEffect(() => {
     if (!isLoggedIn) return;
 
     let socket: WebSocket | null = null;
     const connect = () => {
       if (socket) socket.close();
-      console.log("Connecting to WebSocket...");
       socket = new WebSocket(WS_URL);
       ws.current = socket;
 
@@ -103,13 +101,17 @@ function App() {
         try {
           const data = JSON.parse(event.data);
           if (data.type === 'message') {
-            // Check against REF value to ensure we have the latest room_id
-            if (data.room_id === roomRef.current) {
+            const msgRoomId = data.room_id || 'global';
+            if (msgRoomId === roomRef.current) {
               setMessages(prev => {
-                // Prevent duplicate display
                 if (prev.find(m => m.id === data.id)) return prev;
                 return [...prev, data];
               });
+            } else {
+              setNotifications(prev => ({
+                ...prev,
+                [msgRoomId]: (prev[msgRoomId] || 0) + 1
+              }));
             }
             if (data.username !== username && notificationSound.current) {
               notificationSound.current.play().catch(() => {});
@@ -125,7 +127,7 @@ function App() {
 
     connect();
     return () => { socket?.close(); };
-  }, [isLoggedIn, username, avatar]); // Remove currentRoom from dependencies!
+  }, [isLoggedIn, username, avatar]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -163,12 +165,16 @@ function App() {
 
   const selectChat = (user: User | null) => {
     setSelectedUser(user);
-    if (!user) {
-      setCurrentRoom('global');
-    } else {
+    setMessages([]); // Clear current view
+    
+    let newRoom = 'global';
+    if (user) {
       const sortedUsers = [username, user.username].sort();
-      setCurrentRoom(`private_${sortedUsers[0]}_${sortedUsers[1]}`);
+      newRoom = `private_${sortedUsers[0]}_${sortedUsers[1]}`;
     }
+    
+    setCurrentRoom(newRoom);
+    setNotifications(prev => ({ ...prev, [newRoom]: 0 }));
   };
 
   const sendMessage = (e: React.FormEvent) => {
@@ -213,15 +219,22 @@ function App() {
           <div className={`user-item ${currentRoom === 'global' ? 'me' : ''}`} onClick={() => selectChat(null)}>
             <div className="global-icon">🌍</div>
             <span>Global Chat</span>
+            {notifications['global'] > 0 && <div className="unread-badge">{notifications['global']}</div>}
           </div>
           <div className="sidebar-divider">Private Messages</div>
-          {users.filter(u => u.username !== username).map((u, i) => (
-            <div key={i} className={`user-item ${selectedUser?.username === u.username ? 'me' : ''}`} onClick={() => selectChat(u)}>
-              <img src={u.avatar} alt={u.username} className="user-avatar-small" />
-              <span>{u.username}</span>
-              <div className="online-indicator"></div>
-            </div>
-          ))}
+          {users.filter(u => u.username !== username).map((u, i) => {
+            const sortedUsers = [username, u.username].sort();
+            const roomId = `private_${sortedUsers[0]}_${sortedUsers[1]}`;
+            const unreadCount = notifications[roomId] || 0;
+            return (
+              <div key={i} className={`user-item ${selectedUser?.username === u.username ? 'me' : ''}`} onClick={() => selectChat(u)}>
+                <img src={u.avatar} alt={u.username} className="user-avatar-small" />
+                <span>{u.username}</span>
+                {unreadCount > 0 && <div className="unread-badge">{unreadCount}</div>}
+                <div className="online-indicator"></div>
+              </div>
+            );
+          })}
         </div>
         <div className="sidebar-footer">
           <button onClick={handleLogout} className="logout-btn">Logout</button>
