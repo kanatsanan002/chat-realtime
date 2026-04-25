@@ -210,5 +210,6 @@ async def websocket_endpoint(websocket: WebSocket):
     except Exception as e:
         print(f"Unexpected error: {e}")
     finally:
+        db.close() # Ensure database session is closed
         manager.disconnect(websocket)
         await manager.update_user_list()
