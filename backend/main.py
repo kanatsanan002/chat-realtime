@@ -40,6 +40,11 @@ class UserResponse(BaseModel):
 # FastAPI App
 app = FastAPI()
 
+# Add Health Check Root
+@app.get("/")
+def read_root():
+    return {"status": "ok", "message": "Chat Backend is running"}
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
