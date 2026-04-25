@@ -45,21 +45,25 @@ function App() {
   useEffect(() => {
     if (!isLoggedIn) return;
 
+    console.log("Starting WebSocket connection to:", WS_URL);
     let socket: WebSocket;
     
     const connect = () => {
-      socket = new WebSocket(WS_URL);
-      ws.current = socket;
+      try {
+        socket = new WebSocket(WS_URL);
+        ws.current = socket;
+        console.log("WebSocket object created, current readyState:", socket.readyState);
 
-      socket.onopen = () => {
-        setIsConnected(true);
-        setError('');
-        socket.send(JSON.stringify({
-          type: 'join',
-          username: username,
-          avatar: avatar
-        }));
-      };
+        socket.onopen = () => {
+          console.log("WebSocket connected successfully!");
+          setIsConnected(true);
+          setError('');
+          socket.send(JSON.stringify({
+            type: 'join',
+            username: username,
+            avatar: avatar
+          }));
+        };
       
       socket.onclose = () => {
         setIsConnected(false);
