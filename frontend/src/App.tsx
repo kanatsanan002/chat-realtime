@@ -28,7 +28,6 @@ function App() {
   const [isRegisterMode, setIsRegisterMode] = useState(false);
   const [users, setUsers] = useState<User[]>([]);
   const [error, setError] = useState('');
-  const [showSettings, setShowSettings] = useState(false);
   const [currentRoom, setCurrentRoom] = useState('global');
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
   
@@ -40,8 +39,6 @@ function App() {
   const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
   const API_URL = isLocal ? 'http://127.0.0.1:8000' : 'https://chat-realtime-backend-ky91.onrender.com';
   const WS_URL = isLocal ? 'ws://127.0.0.1:8000/ws' : 'wss://chat-realtime-backend-ky91.onrender.com/ws';
-
-  const getDiceBearAvatar = (name: string) => `https://api.dicebear.com/7.x/avataaars/svg?seed=${name || 'default'}`;
 
   // 1. Restore Login State
   useEffect(() => {
